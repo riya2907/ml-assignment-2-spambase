@@ -277,7 +277,7 @@ Official instructions: [Deploy an app on Community Cloud](https://docs.streamlit
 
 - GitHub repository: available at the link above.
 - Streamlit Community Cloud: app link recorded above.
-- BITS Virtual Lab evidence: no genuine screenshot has been supplied in this project.
+- BITS Virtual Lab evidence: a user-provided screenshot of the app running inside the lab is included in the submission PDF.
 - Final PDF: assemble the real GitHub link, live app link, lab screenshot, and full README content in that order after completing the required work.
 
 See [`STUDY_GUIDE.md`](STUDY_GUIDE.md) for the learning walkthrough and submission steps. Keep an accurate record of your own work and assistance used; this repository is an AI-assisted learning example.

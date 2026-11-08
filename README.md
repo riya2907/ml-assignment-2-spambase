@@ -271,12 +271,12 @@ Official instructions: [Deploy an app on Community Cloud](https://docs.streamlit
 
 ## Streamlit Deployed App Link
 
-**Not deployed yet.** A verified Streamlit Community Cloud URL will be added after deployment.
+[Open deployed Streamlit app](https://inbox-lens-riya2907.streamlit.app/)
 
 ## Submission Status
 
 - GitHub repository: available at the link above.
-- Streamlit Community Cloud: deployment pending.
+- Streamlit Community Cloud: app link recorded above.
 - BITS Virtual Lab evidence: no genuine screenshot has been supplied in this project.
 - Final PDF: assemble the real GitHub link, live app link, lab screenshot, and full README content in that order after completing the required work.
 

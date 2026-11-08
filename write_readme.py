@@ -1,104 +1,271 @@
-"""Create a report from actual saved results; never invent scores or links."""
+"""Render the project README from measured results and verified publication links."""
 import json
 from pathlib import Path
+
 import pandas as pd
 
 
+def markdown_table(frame):
+    header = "| " + " | ".join(frame.columns) + " |\n"
+    header += "| " + " | ".join(["---"] * len(frame.columns)) + " |\n"
+    rows = []
+    for row in frame.itertuples(index=False, name=None):
+        values = [f"{v:.4f}" if isinstance(v, float) else str(v) for v in row]
+        rows.append("| " + " | ".join(values) + " |")
+    return header + "\n".join(rows)
+
+
 def write_readme(root):
-    manifest = json.loads((root / "model" / "manifest.json").read_text())
+    manifest = json.loads((root / "model" / "manifest.json").read_text(encoding="utf-8"))
     links_file = root / "project_links.json"
     links = json.loads(links_file.read_text(encoding="utf-8")) if links_file.exists() else {}
     repository = links.get("github_repository")
-    repository_text = (f"[GitHub repository]({repository})" if repository else
-        "**Not configured:** create your repository after reviewing and adapting this learning example, and replace this paragraph with the real clickable URL. Do not invent a link or commit history.")
+    repository_text = f"[Open GitHub repository]({repository})" if repository else "Not configured."
+    owner = repository.rstrip("/").split("/")[-2] if repository else "Not configured"
+    live_app = links.get("streamlit_app")
+    live_text = f"[Open deployed Streamlit app]({live_app})" if live_app else "**Not deployed yet.** A verified Streamlit Community Cloud URL will be added after deployment."
+    clone_command = f"git clone {repository}.git\ncd {repository.rstrip('/').split('/')[-1]}" if repository else "# Clone your repository, then open its project folder."
     metrics = pd.read_csv(root / "results" / "metrics.csv")
     rows = metrics.set_index("ML Model Name")
     winner = metrics.sort_values(["F1", "MCC"], ascending=False).iloc[0]
-    def table(frame):
-        header = "| " + " | ".join(frame.columns) + " |\n"
-        header += "| " + " | ".join(["---"] * len(frame.columns)) + " |\n"
-        return header + "\n".join("| " + " | ".join(f"{v:.4f}" if isinstance(v, float) else str(v) for v in row) + " |" for row in frame.itertuples(index=False, name=None))
-    explanations = {
-        "Logistic Regression": "A standardized linear baseline. A linear boundary can miss interactions among frequency features.",
-        "Decision Tree": "A depth-limited tree captures nonlinear rules. A single tree can be sensitive to the split; depth 10 and leaf size 3 limit complexity.",
-        "KNN": "Uses 11 distance-weighted neighbors after standardization. Local similarity can help, but 57-dimensional distances can be less informative.",
-        "Naive Bayes": "Gaussian class-conditional densities provide a fast baseline. Correlated, zero-heavy frequency features may violate its assumptions.",
-        "Support Vector Machine": "A standardized RBF kernel captures nonlinear relationships. C=2 and gamma=scale are fixed settings; margins support ROC AUC without probability calibration.",
-    }
     observations = []
     for name, row in rows.iterrows():
-        observations.append({"ML Model Name": name, "Observation about model performance":
-            f"F1 {row['F1']:.4f}, precision {row['Precision']:.4f}, recall {row['Recall']:.4f}, AUC {row['AUC']:.4f}. " + explanations[name]})
+        if name == "Logistic Regression":
+            note = (f"Accuracy {row['Accuracy']:.2%}, F1 {row['F1']:.4f}, and AUC {row['AUC']:.4f}. "
+                    "A useful linear baseline with fairly similar spam precision and recall. A linear boundary may miss interactions between features; this experiment does not isolate that effect.")
+        elif name == "Decision Tree":
+            note = (f"Accuracy {row['Accuracy']:.2%}, F1 {row['F1']:.4f}, and AUC {row['AUC']:.4f}. "
+                    "Its feature-threshold rules are interpretable. The depth and leaf-size limits control complexity, but this single tree does not lead the measured comparison.")
+        elif name == "KNN":
+            note = (f"Accuracy {row['Accuracy']:.2%}, F1 {row['F1']:.4f}, and AUC {row['AUC']:.4f}. "
+                    "Distance-weighted neighbors provide a competitive baseline after standardization. Similarity depends on the scaling and geometry of the 57-dimensional inputs.")
+        elif name == "Naive Bayes":
+            highest_recall = "the highest" if row["Recall"] == metrics["Recall"].max() else "a"
+            note = (f"Spam recall is {row['Recall']:.2%}, {highest_recall} observed recall, while precision is {row['Precision']:.2%} "
+                    f"and F1 is {row['F1']:.4f}. It catches many spam emails at the cost of more false alarms. Gaussian likelihoods and conditional independence are strong assumptions for sparse, correlated frequency features.")
+        else:
+            leading = "the highest observed F1" if row["F1"] == metrics["F1"].max() else "an observed F1"
+            note = (f"Accuracy {row['Accuracy']:.2%}, {leading} of {row['F1']:.4f}, and AUC {row['AUC']:.4f}. "
+                    "The standardized RBF model gives a strong measured balance of precision and recall. Its decision margins are used for AUC and are not calibrated probabilities.")
+        observations.append({"ML Model Name": name, "Observation about model performance": note})
     observations.append({"ML Model Name": "Overall, winner for this test set?", "Observation about model performance":
-        f"{winner['ML Model Name']} has the highest observed F1 ({winner['F1']:.4f}); MCC breaks ties. This describes one holdout, not a proven population-level winner. F1 was chosen to balance spam precision and recall."})
-    content = f"""# Inbox Lens: a Spambase classification learning project
+        f"**{winner['ML Model Name']}**, using F1 as the primary comparison measure (F1 {winner['F1']:.4f}, MCC {winner['MCC']:.4f}). F1 balances spam precision and recall; MCC breaks ties. This describes one holdout, not proven superiority on future email."})
+    feature_groups = "\n\n".join("```text\n" + "\n".join(manifest["features"][a:b]) + "\n```"
+                                    for a, b in [(0, 48), (48, 54), (54, 57)])
+    groups = pd.DataFrame([
+        {"Feature group": "Word frequencies", "Count": 48, "Description": "Percentage of words matching each recorded token."},
+        {"Feature group": "Character frequencies", "Count": 6, "Description": "Percentage of characters matching each recorded symbol."},
+        {"Feature group": "Capital-letter runs", "Count": 3, "Description": "Average, longest and total capital-letter run measures."},
+    ])
+    settings = pd.DataFrame([
+        {"Classifier": "Logistic Regression", "Preprocessing": "StandardScaler", "Fixed settings": "max_iter=3000; random_state=2026"},
+        {"Classifier": "Decision Tree", "Preprocessing": "Raw numeric inputs", "Fixed settings": "max_depth=10; min_samples_leaf=3; random_state=2026"},
+        {"Classifier": "KNN", "Preprocessing": "StandardScaler", "Fixed settings": "n_neighbors=11; weights=distance"},
+        {"Classifier": "Gaussian Naive Bayes", "Preprocessing": "Raw numeric inputs", "Fixed settings": "Default GaussianNB settings"},
+        {"Classifier": "Support Vector Machine", "Preprocessing": "StandardScaler", "Fixed settings": "kernel=rbf; C=2.0; gamma=scale"},
+    ])
+    content = f"""# Inbox Lens
+## Email Spam Classification and Machine Learning Benchmarks
 
-This is an AI-assisted worked example for study and adaptation. Understand the code, make your own justified choices, and execute your experiment in BITS Virtual Lab before submission. Local results are not evidence of BITS execution.
+**Repository owner:** [{owner}](https://github.com/{owner})  
+**Course:** Machine Learning - M.Tech (AIML), Assignment 2  
+**Dataset:** UCI Spambase | **Task:** Binary classification | **Interface:** Streamlit
 
-## a. Problem statement
+> AI-assisted learning project. Understand and adapt the implementation, document your own contributions, and execute the work in BITS Virtual Lab before submitting. Local execution does not establish BITS Virtual Lab execution.
 
-Classify email as spam (1) or non-spam (0) using numeric summaries of word frequency, character frequency, and capitalization. Compare five classifiers on exactly the same held-out examples, and explore their errors in Streamlit. False positives block legitimate mail; false negatives miss spam.
+## a. Problem Statement
 
-## b. Dataset description
+Build and compare five supervised classifiers that identify an email as **spam (1)** or **non-spam (0)** from numeric summaries of its vocabulary, punctuation and capitalization. Evaluate each classifier on the same held-out emails using Accuracy, ROC AUC, Precision, Recall, F1 and Matthews Correlation Coefficient (MCC).
 
-- Source: [UCI Spambase](https://archive.ics.uci.edu/dataset/94/spambase), [DOI](https://doi.org/10.24432/C53G6X).
-- Original dimensions: {manifest['source_rows']:,} emails, {manifest['feature_count']} input features, one binary target, `spam`.
-- Original labels: {manifest['source_class_counts']['0']:,} non-spam and {manifest['source_class_counts']['1']:,} spam.
-- Inputs: 48 word percentages, 6 character percentages, and 3 capital-run measures. No missing values were found in the downloaded source.
-- Cleaning: remove all {manifest['conflicting_label_rows_removed']} rows whose identical feature vector has conflicting labels; then remove {manifest['duplicate_rows_removed']} redundant duplicate rows. Retain {manifest['clean_rows']:,} unique, unambiguous examples.
-- Split: stratified 80/20, `random_state={manifest['seed']}`; {manifest['train_rows']:,} training rows and {manifest['test_rows']:,} test rows. No identical feature vectors cross the split. The CSV includes all 57 features and the target.
-- Limitations: this historical dataset contains organization- and person-specific tokens. Deduplication changes the example distribution. Results on this holdout do not measure modern spam filtering performance.
+The Streamlit application loads the saved models, accepts labeled test CSV uploads, and presents model comparisons and error diagnostics. Blocking legitimate email is a false positive; allowing spam through is a false negative. Both matter when interpreting performance.
 
-## c. Github Repository Link
+## b. Dataset Description
+
+| Item | Description |
+| --- | --- |
+| Dataset | [UCI Spambase](https://archive.ics.uci.edu/dataset/94/spambase) |
+| Citation | [Spambase dataset DOI](https://doi.org/10.24432/C53G6X) |
+| Original instances | {manifest['source_rows']:,} email records; exceeds the minimum of 500 |
+| Input features | **{manifest['feature_count']} numeric predictors**; exceeds the minimum of 12 |
+| Target | `spam`: `0` = non-spam, `1` = spam |
+| Original class counts | {manifest['source_class_counts']['0']:,} non-spam; {manifest['source_class_counts']['1']:,} spam |
+| Missing values | None found in the downloaded source |
+| Cleaned instances | {manifest['clean_rows']:,} unique feature vectors with unambiguous labels |
+| Training / test rows | {manifest['train_rows']:,} / {manifest['test_rows']:,} |
+| Split | Stratified 80/20 holdout; random_state={manifest['seed']} |
+
+The target is **additional to the 57 input features** and is never passed into a model as a predictor.
+
+### Feature Groups
+
+{markdown_table(groups)}
+
+<details>
+<summary>View all 57 input column names, in dataset order</summary>
+
+The three blocks correspond to word frequencies, character frequencies and capital-letter runs.
+
+{feature_groups}
+
+</details>
+
+### Data Preparation and Leakage Prevention
+
+1. Check the source dimensions, numeric values and absence of missing or infinite inputs.
+2. Remove all {manifest['conflicting_label_rows_removed']} rows whose identical feature vector appears with conflicting labels.
+3. Remove {manifest['duplicate_rows_removed']} remaining redundant duplicate rows, leaving {manifest['clean_rows']:,} examples. Clean **before** splitting so the same feature vector cannot appear on both sides.
+4. Use the same stratified training/test split for every classifier. The test CSV contains {manifest['test_class_counts']['0']} non-spam and {manifest['test_class_counts']['1']} spam emails.
+5. Fit scaling only on training data, save it inside the relevant pipelines, and reuse it unchanged for test data.
+
+Deduplication changes the evaluation distribution. This historical collection also contains organization- and person-specific vocabulary, so its holdout scores should not be treated as modern email-filtering performance.
+
+## c. GitHub Repository Link
 
 {repository_text}
 
-## d. Models used
+## d. Models Used and Comparison Table
 
-All five classifiers train on the same rows. StandardScaler is fitted on training data only and saved inside the Logistic Regression, KNN, and SVM pipelines. The tree and Gaussian Naive Bayes use raw numeric inputs. Settings are fixed in `train.py`; no cross-validation, tuning, or test-based parameter selection was performed.
+All classifiers use the same training examples and test examples. Hyperparameters are fixed in `train.py`; no cross-validation, parameter search or test-based tuning was performed.
 
-{table(metrics)}
+### Classifiers and Settings
 
-Positive label is spam (1). Accuracy is the fraction correct. Precision is TP/(TP+FP); recall is TP/(TP+FN); F1 is their harmonic mean. AUC measures ranking over thresholds, using probability scores except for the SVM's decision margins. MCC uses all four confusion-matrix cells and ranges from -1 to 1. Undefined precision/recall/F1 return zero; AUC is shown as N/A for a one-class upload. Values above are proportions, rounded to four decimals.
+{markdown_table(settings)}
 
-### Observations about model performance
+### Evaluation Results
 
-{table(pd.DataFrame(observations))}
+These are measured results from the saved {manifest['test_rows']:,}-row test CSV. Scores are proportions rounded to four decimals; full precision values are in [`results/metrics.csv`](results/metrics.csv).
 
-The explanations above describe plausible model behavior, not causal conclusions established by this experiment. A single split has sampling variability. Use cross-validation within the training data if you extend the study; reserve a fresh final holdout when making further model-selection decisions.
+{markdown_table(metrics)}
 
-## Run and reproduce
+### Observations on Model Performance
 
-Use Python {manifest['python']} (choose Python 3.12 on Community Cloud). From this project directory:
+{markdown_table(pd.DataFrame(observations))}
+
+Interpretations of model mechanisms above are plausible explanations, not causal findings established by this experiment. A single split has sampling variability. Use training-only cross-validation for an extended comparison and protect an appropriate final holdout.
+
+### Metric Conventions
+
+- **Accuracy:** fraction of all emails classified correctly.
+- **Precision, Recall and F1:** binary scores with spam (`1`) as the positive class; undefined divisions return zero.
+- **AUC:** calculated from continuous spam probabilities, or the SVM's decision margins, rather than hard predicted labels. A one-class upload has undefined AUC, displayed as `N/A`.
+- **MCC:** uses all four confusion-matrix cells and ranges from -1 to 1.
+
+## e. How to Run Locally
+
+Use **Python 3.12**. This experiment was executed with Python {manifest['python']}; the model manifest records its exact library versions.
+
+### 1. Clone the Repository
 
 ```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# Linux / BITS Lab: source .venv/bin/activate
+{clone_command}
+```
+
+### 2. Create and Activate a Virtual Environment
+
+**Windows PowerShell**
+
+```powershell
+py -3.12 -m venv .venv
+.\\.venv\\Scripts\\Activate.ps1
+```
+
+**Linux / macOS / BITS Virtual Lab**
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
 python -m pip install -r requirements.txt
-python train.py
-python verify.py
+```
+
+### 4. Start the App with the Included Saved Models
+
+```bash
 python -m streamlit run app.py
 ```
 
-The `data/` folder contains the official UCI source and the generated training split. `test_data.csv` is the exact held-out CSV used for the reported results. `model/` contains all five saved estimators and preprocessing pipelines, plus `manifest.json` with split details, source/test hashes and library versions. `results/` contains full precision metrics and row-level predictions. `train.py` refreshes the README and dependency pins using the environment actually used to train.
+The repository already includes all five trained models and the test CSV. Training is unnecessary for viewing the app. Open the local URL printed by Streamlit, upload `test_data.csv` or use the bundled test set, and select a classifier.
 
-## App features
+### 5. Reproduce Training and Verify Results
 
-- Upload a labeled test CSV or evaluate the bundled held-out CSV.
-- Select any saved classifier; view all six metrics for all five models on the same uploaded data.
-- Inspect the selected confusion matrix and classification report; compare ROC curves when both classes are present.
-- Download the test CSV, current comparison, or selected predictions.
-- Validate column names, numeric values, target labels, missing values, input size and duplicate headers. Reordered columns are accepted and restored to training order.
-- No fitting occurs inside the app. Only repository-owned joblib files are loaded.
+```bash
+python train.py
+python verify.py
+```
 
-## Deployment and required PDF
+Run these commands in BITS Virtual Lab for the required lab execution. Training regenerates model artifacts, the train/test CSVs, metric files, dependency pins and this README. The repository link is preserved through `project_links.json`; reapply other personal README edits after regeneration.
 
-Live app: **not deployed**. No BITS Virtual Lab screenshot has been supplied.
+## f. Streamlit Application Features
 
-See `STUDY_GUIDE.md` for the learning walkthrough, actual BITS execution steps, Community Cloud deployment, and the required PDF order. The project is not a completed submission until you supply genuine links, run in the required lab, and include its screenshot.
+| Feature | Behavior |
+| --- | --- |
+| CSV upload | Accepts a labeled test CSV with all 57 inputs and `spam` |
+| Model selector | Switches between all five saved classifiers |
+| Comparison table | Recalculates all six metrics for every model on the same uploaded rows |
+| Selected-model metrics | Shows six metric cards for the chosen classifier |
+| Error analysis | Confusion matrix and classification report for the selected model |
+| ROC comparison | Displays all five ROC curves when both target classes are present |
+| Downloads | Test CSV, current comparison and selected-model predictions |
+| Validation | Checks columns, numeric values, finite inputs, labels, duplicate headers and size limits |
+| Evaluation only | Uploaded data never triggers model retraining |
 
-References: [Streamlit Community Cloud deployment](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dependency management](https://docs.streamlit.io/deploy/concepts/dependencies).
+Upload limits are **5 MB** and **5,000 rows**. Column order can differ, but all required names must be present and unexpected columns are rejected. Duplicate input rows produce a warning. SVM scores are margins rather than probabilities.
+
+## g. Project Structure
+
+```text
+ml-assignment-2-spambase/
+|-- app.py                   # Streamlit evaluation interface
+|-- core.py                  # CSV validation and shared metric calculation
+|-- train.py                 # Cleaning, splitting, fitting and artifact export
+|-- verify.py                # Model, metric, input and app checks
+|-- write_readme.py          # README generated from real results
+|-- requirements.txt         # Exact direct dependency versions
+|-- README.md
+|-- STUDY_GUIDE.md
+|-- project_links.json       # Verified repository/deployment links
+|-- test_data.csv            # Labeled held-out test rows
+|-- .streamlit/config.toml
+|-- data/                    # UCI source files and generated training split
+|-- model/                   # Five saved models/pipelines and manifest
+`-- results/                 # Metric comparison and per-model predictions
+```
+
+`model/manifest.json` records the feature order, split counts, seed, source/test SHA-256 hashes and package versions. Credentials, temporary files and local dependency folders are excluded from the repository.
+
+## h. Streamlit Community Cloud Deployment
+
+1. Open [Streamlit Community Cloud](https://share.streamlit.io/) and sign in with GitHub.
+2. Choose **Create app**, select this repository and branch `main`, and set the entrypoint to `app.py`.
+3. Select **Python 3.12** in Advanced settings and deploy.
+4. Open the assigned URL, upload the test CSV, switch classifiers, and check the comparison and confusion matrix.
+5. Record the verified app URL under `streamlit_app` in `project_links.json` and regenerate the README with `python write_readme.py`.
+
+Official instructions: [Deploy an app on Community Cloud](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy).
+
+## Streamlit Deployed App Link
+
+{live_text}
+
+## Submission Status
+
+- GitHub repository: {"available at the link above" if repository else "not configured"}.
+- Streamlit Community Cloud: {"app link recorded above" if live_app else "deployment pending"}.
+- BITS Virtual Lab evidence: no genuine screenshot has been supplied in this project.
+- Final PDF: assemble the real GitHub link, live app link, lab screenshot, and full README content in that order after completing the required work.
+
+See [`STUDY_GUIDE.md`](STUDY_GUIDE.md) for the learning walkthrough and submission steps. Keep an accurate record of your own work and assistance used; this repository is an AI-assisted learning example.
+
+## References
+
+- [UCI Spambase dataset](https://archive.ics.uci.edu/dataset/94/spambase) and [dataset DOI](https://doi.org/10.24432/C53G6X).
+- [scikit-learn documentation](https://scikit-learn.org/stable/) and [citation guidance](https://scikit-learn.org/stable/about.html#citing-scikit-learn).
+- [Streamlit documentation](https://docs.streamlit.io/) and [dependency management](https://docs.streamlit.io/deploy/concepts/dependencies).
+- [User-supplied VinoClass AI reference](https://github.com/arrjvvmukesh/BITS_ML_Assignment_2_Wine_ML_Classifier_VinoClass_AI_2026AJ05810): reference for README organization. This project's dataset, settings, results and wording are specific to Inbox Lens.
 """
     (root / "README.md").write_text(content, encoding="utf-8")
 

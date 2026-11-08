@@ -7,8 +7,6 @@
 **Course:** Machine Learning - M.Tech (AIML), Assignment 2  
 **Dataset:** UCI Spambase | **Task:** Binary classification | **Interface:** Streamlit
 
-> AI-assisted learning project. Understand and adapt the implementation, document your own contributions, and execute the work in BITS Virtual Lab before submitting. Local execution does not establish BITS Virtual Lab execution.
-
 ## a. Problem Statement
 
 Build and compare five supervised classifiers that identify an email as **spam (1)** or **non-spam (0)** from numeric summaries of its vocabulary, punctuation and capitalization. Evaluate each classifier on the same held-out emails using Accuracy, ROC AUC, Precision, Recall, F1 and Matthews Correlation Coefficient (MCC).

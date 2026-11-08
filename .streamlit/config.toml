@@ -1,0 +1,15 @@
+[global]
+developmentMode = false
+
+[theme]
+primaryColor = "#087F8C"
+backgroundColor = "#F7FAFC"
+secondaryBackgroundColor = "#E7EFF4"
+textColor = "#17324D"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+maxUploadSize = 5

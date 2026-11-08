@@ -1,0 +1,13 @@
+.packages/
+.venv/
+__pycache__/
+tmp/
+.streamlit/secrets.toml
+.pytest_cache/
+submission/output/
+Creds.txt
+creds*.txt
+credentials*.txt
+.env
+.env.*
+PLAGIARISM_REVIEW.md

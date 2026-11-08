@@ -67,6 +67,8 @@ def write_readme(root):
     content = f"""# Inbox Lens
 ## Email Spam Classification and Machine Learning Benchmarks
 
+**Name:** Riya Ganguli  
+**BITS ID:** 2026AJ05124  
 **Repository owner:** [{owner}](https://github.com/{owner})  
 **Course:** Machine Learning - M.Tech (AIML), Assignment 2  
 **Dataset:** UCI Spambase | **Task:** Binary classification | **Interface:** Streamlit
